@@ -1,9 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-// Main compileZMX function
 function compileZMX(zmxCode, outputFileName) {
-  const ast = parseZMX(zmxCode); // Parse the ZMX code
+  const ast = parseZMX(zmxCode);
   const transformedCode = transformAST(ast); // Transform to web components
   const jsCode = generateCode(transformedCode); // Generate JS code
   const htmlCode = generateHTML(transformedCode, outputFileName); // Generate HTML code

@@ -1,0 +1,14 @@
+
+<template>
+  <button>Default Button</button>
+</template>
+
+<style>
+button { 
+  padding: 10px; 
+  background-color: blue; 
+  color: white; 
+}
+</style>
+
+

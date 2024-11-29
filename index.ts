@@ -1,107 +1,180 @@
-const fs = require("fs");
-const path = require("path");
+import fs from "fs";
+import path from "path";
 
+class ZMXCompiler {
+  private inputDir: string;
+  private outputDir: string;
+  private components: Record<string, any> = {};
 
-function compileZMX(zmxCode, outputFileName) {
-  const ast = parseZMX(zmxCode); 
-  const transformedCode = transformAST(ast); 
-  const jsCode = generateCode(transformedCode); 
-  const htmlCode = generateHTML(transformedCode, outputFileName); 
+  constructor(inputDir: string, outputDir: string) {
+    this.inputDir = inputDir;
+    this.outputDir = outputDir;
+  }
 
-
-  const jsFileName = `${outputFileName}.js`;
-  fs.writeFileSync(jsFileName, jsCode, "utf8");
-  console.log(`Generated: ${jsFileName}`);
-
-
-  const htmlFileName = `${outputFileName}.html`;
-  fs.writeFileSync(htmlFileName, htmlCode, "utf8");
-  console.log(`Generated: ${htmlFileName}`);
-}
-
-
-function parseZMX(code) {
-  return {
-    template: code.match(/<template>([\s\S]*?)<\/template>/)?.[1] || "", 
-    style: code.match(/<style>([\s\S]*?)<\/style>/)?.[1] || "", 
-  };
-}
-
-
-function transformAST(ast) {
-  const transformedTemplate = ast.template.replace(
-    /<\w+([^>]*)>([\s\S]*?)<\/\w+>/g,
-    (match, attributes, content) => {
-      return `<div class="card"${attributes}>${content}</div>`;
+  compileZMXFiles() {
+    // Ensure output directory exists
+    if (!fs.existsSync(this.outputDir)) {
+      fs.mkdirSync(this.outputDir, { recursive: true });
     }
-  );
 
-  return {
-    template: transformedTemplate,
-    style: ast.style,
-  };
-}
+    // Collect all .zmx files
+    const files = fs.readdirSync(this.inputDir)
+      .filter(file => file.endsWith(".zmx"));
 
+    // First pass: Parse and collect all component definitions
+    files.forEach(file => {
+      const inputPath = path.join(this.inputDir, file);
+      const zmxCode = fs.readFileSync(inputPath, "utf8");
+      this.parseAndRegisterComponent(file, zmxCode);
+    });
 
-function generateCode(ast) {
-  return `
-    function initializeGeneratedComponent(container, props = {}) {
-      if (!container || !(container instanceof HTMLElement)) {
-        throw new Error('A valid container element must be provided.');
-      }
+    // Generate consolidated JS
+    this.generateConsolidatedJS();
 
-      // Add styles to the document
-      const styleElement = document.createElement('style');
-      styleElement.textContent = \`
-        ${ast.style}
-      \`;
-      document.head.appendChild(styleElement);
+    // Generate consolidated HTML
+    this.generateConsolidatedHTML(files);
+  }
 
-      // Generate the component content
-      const content = \`${ast.template}\`;
-      container.innerHTML = content;
+  private parseAndRegisterComponent(fileName: string, zmxCode: string) {
+    const componentName = path.basename(fileName, ".zmx");
+    const ast = this.parseZMX(zmxCode);
+    
+    // Extract component metadata
+    const componentProps = this.extractComponentProps(ast.template);
+    
+    this.components[componentName] = {
+      name: componentName,
+      ast: ast,
+      props: componentProps
+    };
+  }
+
+  private extractComponentProps(template: string): string[] {
+    // Simple prop extraction using regex
+    const propMatches = template.match(/\{([^}]+)\}/g) || [];
+    return propMatches.map(match => 
+      match.slice(1, -1).trim().split(':')[0].trim()
+    );
+  }
+
+  private parseZMX(code: string) {
+    return {
+      template: code.match(/<template>([\s\S]*?)<\/template>/)?.[1] || "",
+      style: code.match(/<style>([\s\S]*?)<\/style>/)?.[1] || "",
+      script: code.match(/<script>([\s\S]*?)<\/script>/)?.[1] || ""
+    };
+  }
+
+  private generateConsolidatedJS() {
+    const consolidatedJSContent = `
+// Consolidated Components Initialization
+const ComponentRegistry = {
+  ${Object.entries(this.components).map(([name, component]) => 
+    `${name}: ${this.generateComponentInitializer(name, component)}`
+  ).join(',\n  ')}
+};
+
+// Global Styles
+function injectGlobalStyles() {
+  const styleElement = document.createElement('style');
+  styleElement.textContent = \`
+    ${Object.values(this.components)
+      .map(component => component.ast.style)
+      .filter(Boolean)
+      .join('\n')
     }
-  `;
+  \`;
+  document.head.appendChild(styleElement);
 }
 
+// Component Initialization Function
+function initializeComponents(container, props = {}) {
+  if (!container || !(container instanceof HTMLElement)) {
+    throw new Error('A valid container element must be provided.');
+  }
 
-function generateHTML(ast, outputFileName) {
-  return `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Generated Component</title>
-    </head>
-    <body>
-      <div id="generated-component-container"></div>
-      <script src="./${path.basename(outputFileName)}.js"></script>
-      <script>
-        const container = document.getElementById('generated-component-container');
-        initializeGeneratedComponent(container, { title: "Hello, World!" });
-      </script>
-    </body>
-    </html>
-  `;
-}
+  // Inject global styles
+  injectGlobalStyles();
 
-
-function compileZMXFiles(inputDir, outputDir) {
-  const files = fs.readdirSync(inputDir).filter((file) => file.endsWith(".zmx"));
-
-  files.forEach((file) => {
-    const inputPath = path.join(inputDir, file);
-    const outputFileName = path.join(outputDir, path.basename(file, ".zmx"));
-    const zmxCode = fs.readFileSync(inputPath, "utf8");
-    compileZMX(zmxCode, outputFileName);
+  // Initialize custom components
+  Object.entries(ComponentRegistry).forEach(([name, initializer]) => {
+    const elements = container.querySelectorAll(\`[data-component="\${name}"]\`);
+    elements.forEach(el => initializer(el, props));
   });
 }
 
+// Export for potential module usage
+export { ComponentRegistry, initializeComponents };
 
-if (require.main === module) {
-  const inputDir = "."; 
-  const outputDir = "./dist";
-  if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir);
-  compileZMXFiles(inputDir, outputDir);
+// Auto-initialize if used in browser
+if (typeof window !== 'undefined') {
+  window.addEventListener('DOMContentLoaded', () => {
+    const container = document.getElementById('app-container');
+    if (container) {
+      initializeComponents(container);
+    }
+  });
+}
+`;
+
+    // Write consolidated JS
+    const consolidatedJSPath = path.join(this.outputDir, 'components.js');
+    fs.writeFileSync(consolidatedJSPath, consolidatedJSContent, "utf8");
+    console.log(`Generated: ${consolidatedJSPath}`);
+  }
+
+  private generateComponentInitializer(name: string, component: any) {
+    return `function(container, props = {}) {
+      const content = \`${component.ast.template}\`;
+      
+      // Simple prop interpolation
+      const interpolatedContent = content.replace(/\\{([^}]+)\\}/g, (match, p) => {
+        const [propName, defaultValue] = p.split(':').map(s => s.trim());
+        return props[propName] || defaultValue || '';
+      });
+
+      container.innerHTML = interpolatedContent;
+    }`;
+  }
+
+  private generateConsolidatedHTML(files: string[]) {
+    const consolidatedHTML = `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Consolidated Components</title>
+  <script type="module" src="./components.js"></script>
+</head>
+<body>
+  <div id="app-container">
+    ${files.map(file => {
+      const componentName = path.basename(file, ".zmx");
+      return `
+    <div id="${componentName}-container" 
+         class="component-container" 
+         data-component="${componentName}">
+      <!-- ${componentName} Component Placeholder -->
+    </div>`;
+    }).join('\n    ')}
+  </div>
+</body>
+</html>
+    `;
+
+    // Write consolidated HTML
+    const consolidatedHTMLPath = path.join(this.outputDir, 'index.html');
+    fs.writeFileSync(consolidatedHTMLPath, consolidatedHTML, "utf8");
+    console.log(`Generated: ${consolidatedHTMLPath}`);
+  }
+}
+
+// Export for module usage
+export default ZMXCompiler;
+
+// Direct usage
+if (import.meta.main) {
+  const compiler = new ZMXCompiler(".", "./dist");
+  compiler.compileZMXFiles();
 }
