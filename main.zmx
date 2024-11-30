@@ -1,7 +1,9 @@
 import Button from './Button.zmx'
+import Card from './Card.zmx'
 
 <template>
   <div>
     <Button>Click Me</Button>
+    <Card />
   </div>
 </template>

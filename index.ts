@@ -16,24 +16,33 @@ class ZMXCompiler {
     if (!fs.existsSync(this.outputDir)) {
       fs.mkdirSync(this.outputDir, { recursive: true });
     }
-
+  
     // Collect all .zmx files
-    const files = fs.readdirSync(this.inputDir)
-      .filter(file => file.endsWith(".zmx"));
-
+    let files = fs.readdirSync(this.inputDir).filter(file => file.endsWith(".zmx"));
+  
+    // Check for main.zmx and move it to the front if it exists
+    const mainFileIndex = files.indexOf("main.zmx");
+    if (mainFileIndex !== -1) {
+      const [mainFile] = files.splice(mainFileIndex, 1); // Remove main.zmx
+      files = [mainFile, ...files.sort()]; // Place main.zmx at the beginning
+    } else {
+      files.sort(); // Sort alphabetically if no main.zmx
+    }
+  
     // First pass: Parse and collect all component definitions
     files.forEach(file => {
       const inputPath = path.join(this.inputDir, file);
       const zmxCode = fs.readFileSync(inputPath, "utf8");
       this.parseAndRegisterComponent(file, zmxCode);
     });
-
+  
     // Generate consolidated JS
     this.generateConsolidatedJS();
-
+  
     // Generate consolidated HTML
     this.generateConsolidatedHTML(files);
   }
+  
 
   private parseAndRegisterComponent(fileName: string, zmxCode: string) {
     const componentName = path.basename(fileName, ".zmx");
